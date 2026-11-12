@@ -1,0 +1,8 @@
+{
+  "name": "NEXUS",
+  "description": "Universal Application Interoperability Framework - Real-time protocol bridging, service mesh registry, pipeline orchestration, packet traffic inspection, and cross-application dispatch console.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
