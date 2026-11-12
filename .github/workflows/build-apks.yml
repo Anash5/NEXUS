@@ -1,0 +1,65 @@
+name: Build NEXUS APKs
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Create debug keystore
+        run: |
+          keytool -genkeypair -v \
+            -keystore debug.keystore \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+
+      - name: Run tests and build APKs
+        run: |
+          gradle --no-daemon \
+            :nexus-provider:testDebugUnitTest \
+            :nexus-framework:testDebugUnitTest \
+            :nexus-client:testDebugUnitTest \
+            :nexus-framework:assembleDebug \
+            :nexus-provider:assembleDebug \
+            :nexus-client:assembleDebug
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-debug-apks
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            nexus-provider/build/outputs/apk/debug/*.apk
+            nexus-client/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 30
