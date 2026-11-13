@@ -37,18 +37,20 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
-      # Generate the debug signing key required by all three modules
-      - name: Create debug keystore
+      # Restore the persistent development keystore from GitHub Actions secrets
+      - name: Restore debug keystore
+        env:
+          DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
         run: |
-          keytool -genkeypair -v \
-            -keystore debug.keystore \
-            -storepass android \
-            -alias androiddebugkey \
-            -keypass android \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -dname "CN=Android Debug,O=Android,C=US"
+          if [ -z "$DEBUG_KEYSTORE_BASE64" ]; then
+            echo "::error::GitHub secret DEBUG_KEYSTORE_BASE64 is missing or empty."
+            exit 1
+          fi
+          printf '%s' "$DEBUG_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 --decode > "${{ github.workspace }}/debug.keystore"
+          if [ ! -s "${{ github.workspace }}/debug.keystore" ]; then
+            echo "::error::Failed to decode debug.keystore from DEBUG_KEYSTORE_BASE64."
+            exit 1
+          fi
 
       # Run unit tests and build all three APKs
       - name: Run tests and build APKs
@@ -60,6 +62,58 @@ jobs:
             :nexus-framework:assembleDebug \
             :nexus-provider:assembleDebug \
             :nexus-client:assembleDebug
+
+      # Verify all three APKs are signed with the exact expected debug certificate fingerprint
+      - name: Verify APK signing certificates
+        run: |
+          EXPECTED_SHA256="ecaaabbbed1c49e360aace03f6afd13c54528ee485c7d87aab4f7a7149056e68"
+          SDK_ROOT="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          APKSIGNER="$(find "$SDK_ROOT/build-tools" -maxdepth 2 -name apksigner -type f 2>/dev/null | sort -V | tail -n 1)"
+          if [ -z "$APKSIGNER" ] || [ ! -x "$APKSIGNER" ]; then
+            echo "::error::apksigner not found under $SDK_ROOT/build-tools"
+            exit 1
+          fi
+
+          extract_sha256() {
+            local apk="$1"
+            if [ ! -f "$apk" ]; then
+              echo "::error::Expected APK not found: $apk"
+              exit 1
+            fi
+            local output
+            output="$("$APKSIGNER" verify --print-certs "$apk")"
+            local digest
+            digest="$(printf '%s\n' "$output" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1 | tr '[:upper:]' '[:lower:]')"
+            if [ -z "$digest" ]; then
+              echo "::error::Could not extract SHA-256 digest from $apk"
+              exit 1
+            fi
+            printf '%s' "$digest"
+          }
+
+          FRAMEWORK_APK="$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' | head -n 1)"
+          PROVIDER_APK="$(find nexus-provider/build/outputs/apk/debug -maxdepth 1 -name '*.apk' | head -n 1)"
+          CLIENT_APK="$(find nexus-client/build/outputs/apk/debug -maxdepth 1 -name '*.apk' | head -n 1)"
+
+          FRAMEWORK_SHA256="$(extract_sha256 "$FRAMEWORK_APK")"
+          PROVIDER_SHA256="$(extract_sha256 "$PROVIDER_APK")"
+          CLIENT_SHA256="$(extract_sha256 "$CLIENT_APK")"
+
+          echo "Framework APK ($FRAMEWORK_APK): $FRAMEWORK_SHA256"
+          echo "Provider APK  ($PROVIDER_APK): $PROVIDER_SHA256"
+          echo "Client APK    ($CLIENT_APK): $CLIENT_SHA256"
+
+          if [ "$FRAMEWORK_SHA256" != "$PROVIDER_SHA256" ] || [ "$FRAMEWORK_SHA256" != "$CLIENT_SHA256" ]; then
+            echo "::error::APK signing certificate fingerprints do not match across modules!"
+            exit 1
+          fi
+
+          if [ "$FRAMEWORK_SHA256" != "$EXPECTED_SHA256" ]; then
+            echo "::error::APK signing certificate fingerprint [$FRAMEWORK_SHA256] does not match expected debug fingerprint [$EXPECTED_SHA256]!"
+            exit 1
+          fi
+
+          echo "All three APKs verified with matching expected SHA-256 fingerprint: $EXPECTED_SHA256"
 
       # Upload APK files
       - name: Upload APKs
