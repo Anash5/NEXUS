@@ -25,12 +25,21 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import org.nexus.provider.text.service.ProviderActivationStore
 import org.nexus.provider.text.service.TextProviderService
 
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        val persistedEnabled = TextProviderService.syncPersistedState(this)
+        if (persistedEnabled && !TextProviderService.isServiceActive) {
+            val resumeIntent = Intent(this, TextProviderService::class.java).apply {
+                action = TextProviderService.ACTION_START
+            }
+            startService(resumeIntent)
+        }
 
         setContent {
             MaterialTheme(
@@ -46,12 +55,14 @@ class MainActivity : ComponentActivity() {
                 ) {
                     ProviderControlScreen(
                         onActivate = {
+                            ProviderActivationStore(this).setActivationEnabled(true)
                             val intent = Intent(this, TextProviderService::class.java).apply {
                                 action = TextProviderService.ACTION_START
                             }
                             startService(intent)
                         },
                         onDeactivate = {
+                            ProviderActivationStore(this).setActivationEnabled(false)
                             val intent = Intent(this, TextProviderService::class.java).apply {
                                 action = TextProviderService.ACTION_STOP
                             }
@@ -71,7 +82,6 @@ fun ProviderControlScreen(
     onDeactivate: () -> Unit
 ) {
     val state by TextProviderService.providerStatusFlow.collectAsStateWithLifecycle()
-    val isRunning = TextProviderService.isServiceActive
 
     val capabilitiesList = remember {
         listOf(
@@ -131,24 +141,34 @@ fun ProviderControlScreen(
                                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
+                                val statusColor = when {
+                                    state.isBoundToHub -> Color(0xFF10B981)
+                                    state.isActivationEnabled -> Color(0xFFF59E0B)
+                                    else -> Color(0xFFEF4444)
+                                }
+                                val statusLabel = when {
+                                    state.isBoundToHub -> "ACTIVE • BOUND TO HUB"
+                                    state.isActivationEnabled -> "ENABLED • RECONNECTING"
+                                    else -> "DEACTIVATED / IDLE"
+                                }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Box(
                                         modifier = Modifier
                                             .size(8.dp)
                                             .clip(CircleShape)
-                                            .background(if (state.isBoundToHub) Color(0xFF10B981) else Color(0xFFEF4444))
+                                            .background(statusColor)
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = if (state.isBoundToHub) "ACTIVE • BOUND TO HUB" else "DEACTIVATED / IDLE",
+                                        text = statusLabel,
                                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                        color = if (state.isBoundToHub) Color(0xFF10B981) else Color(0xFFEF4444)
+                                        color = statusColor
                                     )
                                 }
                             }
 
                             Switch(
-                                checked = isRunning && state.isBoundToHub,
+                                checked = state.isActivationEnabled || state.isBoundToHub,
                                 onCheckedChange = { checked ->
                                     if (checked) onActivate() else onDeactivate()
                                 },

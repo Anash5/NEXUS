@@ -52,6 +52,7 @@ data class NexusResponse(
         const val STATUS_PROVIDER_DEACTIVATED = 410
         const val STATUS_LEASE_EXPIRED = 412
         const val STATUS_PAYLOAD_TOO_LARGE = 413
+        const val STATUS_TOO_MANY_REQUESTS = 429
         const val STATUS_EXECUTION_FAILED = 500
         const val STATUS_PROVIDER_CRASHED = 502
         const val STATUS_PROVIDER_DISCONNECTED = 503

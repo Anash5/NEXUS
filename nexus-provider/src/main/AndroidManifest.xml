@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <permission
+        android:name="org.nexus.permission.CONNECT_PROVIDER"
+        android:label="Connect to NEXUS Capability Provider"
+        android:protectionLevel="normal" />
+
     <!-- Query framework hub visibility for Android 11+ -->
     <queries>
         <package android:name="org.nexus.framework" />
@@ -29,7 +34,12 @@
 
         <service
             android:name=".service.TextProviderService"
-            android:exported="false" />
+            android:exported="true"
+            android:permission="org.nexus.permission.CONNECT_PROVIDER">
+            <intent-filter>
+                <action android:name="org.nexus.action.BIND_CAPABILITY_PROVIDER" />
+            </intent-filter>
+        </service>
     </application>
 
 </manifest>

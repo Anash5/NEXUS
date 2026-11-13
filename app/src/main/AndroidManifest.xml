@@ -3,6 +3,14 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="org.nexus.permission.CONNECT_PROVIDER" />
+
+    <queries>
+        <package android:name="org.nexus.provider.text" />
+        <intent>
+            <action android:name="org.nexus.action.BIND_CAPABILITY_PROVIDER" />
+        </intent>
+    </queries>
 
     <application
         android:allowBackup="true"
