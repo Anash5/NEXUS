@@ -29,7 +29,7 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
         with:
-          packages: 'platform-tools'
+          packages: 'platform-tools build-tools;36.0.0'
 
       # Install Gradle
       - name: Set up Gradle
@@ -67,33 +67,62 @@ jobs:
       - name: Verify APK signing certificates
         run: |
           EXPECTED_SHA256="ecaaabbbed1c49e360aace03f6afd13c54528ee485c7d87aab4f7a7149056e68"
-          SDK_ROOT="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
-          APKSIGNER="$(find "$SDK_ROOT/build-tools" -maxdepth 2 -name apksigner -type f 2>/dev/null | sort -V | tail -n 1)"
-          if [ -z "$APKSIGNER" ] || [ ! -x "$APKSIGNER" ]; then
-            echo "::error::apksigner not found under $SDK_ROOT/build-tools"
+
+          APKSIGNER=""
+          for sdk_dir in "${ANDROID_HOME:-}" "${ANDROID_SDK_ROOT:-}" "/usr/local/lib/android/sdk" "$HOME/Android/Sdk"; do
+            if [ -n "$sdk_dir" ] && [ -d "$sdk_dir/build-tools" ]; then
+              candidate="$(find "$sdk_dir/build-tools" -maxdepth 2 -name apksigner \( -type f -o -type l \) 2>/dev/null | sort -V | tail -n 1 || true)"
+              if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+                APKSIGNER="$candidate"
+                break
+              fi
+            fi
+          done
+
+          if [ -z "$APKSIGNER" ]; then
+            echo "::error::apksigner not found. ANDROID_HOME=[${ANDROID_HOME:-}] ANDROID_SDK_ROOT=[${ANDROID_SDK_ROOT:-}]"
             exit 1
           fi
+          echo "Using apksigner: $APKSIGNER"
+
+          find_apk() {
+            local dir="$1"
+            local matches=()
+            if [ -d "$dir" ]; then
+              while IFS= read -r line; do
+                matches+=("$line")
+              done < <(find "$dir" -maxdepth 1 -name '*.apk' -type f | sort)
+            fi
+            if [ "${#matches[@]}" -ne 1 ]; then
+              echo "::error::Expected exactly 1 APK in [$dir], found ${#matches[@]}." >&2
+              return 1
+            fi
+            printf '%s' "${matches[0]}"
+          }
 
           extract_sha256() {
             local apk="$1"
             if [ ! -f "$apk" ]; then
-              echo "::error::Expected APK not found: $apk"
-              exit 1
+              echo "::error::Expected APK not found: $apk" >&2
+              return 1
             fi
             local output
-            output="$("$APKSIGNER" verify --print-certs "$apk")"
+            if ! output="$("$APKSIGNER" verify --print-certs "$apk" 2>&1)"; then
+              echo "::error::apksigner verify failed for $apk: $output" >&2
+              return 1
+            fi
             local digest
-            digest="$(printf '%s\n' "$output" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1 | tr '[:upper:]' '[:lower:]')"
+            digest="$(printf '%s\n' "$output" | sed -n 's/^Signer #1 certificate SHA-256 digest:[[:space:]]*//p' | sed -n '1p' | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
             if [ -z "$digest" ]; then
-              echo "::error::Could not extract SHA-256 digest from $apk"
-              exit 1
+              echo "::error::Could not extract SHA-256 digest from $apk. Output was: $output" >&2
+              return 1
             fi
             printf '%s' "$digest"
           }
 
-          FRAMEWORK_APK="$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' | head -n 1)"
-          PROVIDER_APK="$(find nexus-provider/build/outputs/apk/debug -maxdepth 1 -name '*.apk' | head -n 1)"
-          CLIENT_APK="$(find nexus-client/build/outputs/apk/debug -maxdepth 1 -name '*.apk' | head -n 1)"
+          FRAMEWORK_APK="$(find_apk "app/build/outputs/apk/debug")"
+          PROVIDER_APK="$(find_apk "nexus-provider/build/outputs/apk/debug")"
+          CLIENT_APK="$(find_apk "nexus-client/build/outputs/apk/debug")"
 
           FRAMEWORK_SHA256="$(extract_sha256 "$FRAMEWORK_APK")"
           PROVIDER_SHA256="$(extract_sha256 "$PROVIDER_APK")"
