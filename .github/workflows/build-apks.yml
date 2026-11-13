@@ -111,13 +111,15 @@ jobs:
               echo "::error::apksigner verify failed for $apk: $output" >&2
               return 1
             fi
-            local digest
-            digest="$(printf '%s\n' "$output" | sed -n 's/^Signer #1 certificate SHA-256 digest:[[:space:]]*//p' | sed -n '1p' | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
-            if [ -z "$digest" ]; then
-              echo "::error::Could not extract SHA-256 digest from $apk. Output was: $output" >&2
+            local unique_digests
+            unique_digests="$(printf '%s\n' "$output" | sed -n 's/^.*certificate SHA-256 digest:[[:space:]]*//p' | tr -d ' \t\r' | tr '[:upper:]' '[:lower:]' | sed '/^$/d' | sort -u)"
+            local line_count
+            line_count="$(printf '%s\n' "$unique_digests" | sed '/^$/d' | wc -l | tr -d ' ')"
+            if [ "$line_count" -ne 1 ] || [[ ! "$unique_digests" =~ ^[0-9a-f]{64}$ ]]; then
+              echo "::error::Could not extract a unique SHA-256 digest from $apk. Output was: $output" >&2
               return 1
             fi
-            printf '%s' "$digest"
+            printf '%s' "$unique_digests"
           }
 
           FRAMEWORK_APK="$(find_apk "app/build/outputs/apk/debug")"
